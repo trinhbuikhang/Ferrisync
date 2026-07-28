@@ -1,0 +1,30 @@
+# Ferrisync example configuration
+#
+# Copy to ferrisync.toml and adjust paths.
+# Retention defaults are SAFE: enabled=false, dry_run=true.
+
+log_level = "info"
+# state_db = "C:/Users/You/AppData/Roaming/Ferrisync/state.db"
+audit_log = "./logs/audit.jsonl"
+
+[defaults]
+concurrency = 4
+retry_count = 3
+retry_backoff_ms = 500
+compare_mode = "size_mtime"
+heartbeat_secs = 10
+
+[defaults.retention]
+enabled = false
+dry_run = true
+retention_days = 4
+mode = "quarantine"
+# quarantine_dir = "D:/Quarantine/Survey"
+purge_grace_days = 14
+
+[[pairs]]
+id = "survey-raw"
+source = "D:/Staging/Survey"
+destination = "//NAS/Survey/Archive"
+# concurrency = 2
+# retention = { enabled = false, dry_run = true, retention_days = 4, mode = "quarantine", quarantine_dir = "D:/Quarantine/Survey" }

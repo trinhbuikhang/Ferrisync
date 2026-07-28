@@ -1,0 +1,11 @@
+mod cli;
+
+use clap::Parser;
+
+fn main() {
+    let cli = cli::Cli::parse();
+    if let Err(err) = cli::run(cli) {
+        eprintln!("error: {err:#}");
+        std::process::exit(1);
+    }
+}

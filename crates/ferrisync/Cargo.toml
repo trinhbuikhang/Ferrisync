@@ -1,0 +1,17 @@
+[package]
+name = "ferrisync"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CLI for Ferrisync NAS file sync tool"
+
+[[bin]]
+name = "ferrisync"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+ferrisync-core = { path = "../ferrisync-core" }
+tracing.workspace = true
+tracing-subscriber.workspace = true

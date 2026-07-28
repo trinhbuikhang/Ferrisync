@@ -1,0 +1,20 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local runtime
+*.db
+*.db-wal
+*.db-shm
+/logs/
+*.jsonl
+
+# Test artifacts
+/tmp/
