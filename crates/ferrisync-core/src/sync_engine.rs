@@ -439,6 +439,49 @@ mod tests {
     }
 
     #[test]
+    fn sync_then_compare_is_stable() {
+        let tmp = TempDir::new().unwrap();
+        let src = tmp.child("src");
+        let dst = tmp.child("dst");
+        src.create_dir_all().unwrap();
+        dst.create_dir_all().unwrap();
+        src.child("stable.bin").write_str("payload").unwrap();
+
+        let store = StateStore::open_in_memory().unwrap();
+        let pair = test_pair(src.path(), dst.path());
+        let stats = sync_pair(&pair, &store, &opts()).unwrap();
+        assert_eq!(stats.copied, 1);
+        assert_eq!(stats.errors, 0);
+
+        let cmp = crate::compare::compare_pair(src.path(), dst.path(), Some(&store), Some("t1"))
+            .unwrap();
+        assert_eq!(cmp.scanned, 1);
+        assert_eq!(
+            cmp.to_copy, 0,
+            "after successful sync, nothing should need copy; rows={:?}",
+            cmp.rows
+                .iter()
+                .map(|r| (&r.relative_path, r.action))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(cmp.rows[0].action, crate::compare::CompareAction::Unchanged);
+    }
+
+    #[test]
+    fn sync_pair_errors_cleanly_when_source_missing() {
+        let tmp = TempDir::new().unwrap();
+        let dst = tmp.child("dst");
+        dst.create_dir_all().unwrap();
+        let store = StateStore::open_in_memory().unwrap();
+        let pair = test_pair(tmp.child("missing-src").path(), dst.path());
+        let err = sync_pair(&pair, &store, &opts()).unwrap_err();
+        assert!(
+            err.to_string().contains("does not exist"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
     fn full_sync_cycle_verifies_and_records_hashes() {
         let tmp = TempDir::new().unwrap();
         let src = tmp.child("src");

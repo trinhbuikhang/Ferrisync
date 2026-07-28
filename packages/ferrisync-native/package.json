@@ -18,6 +18,7 @@
     "@napi-rs/cli": "^2.18.4"
   },
   "scripts": {
+    "smoke": "node scripts/smoke.cjs",
     "artifacts": "napi artifacts",
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",

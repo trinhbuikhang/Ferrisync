@@ -92,11 +92,13 @@ pub fn classify(
             }
         }
         Some(dest) => {
-            let meta_matches = dest.size == source.size && dest.mtime == source.mtime;
             if let Some(rec) = state {
-                let state_matches = rec.size as u64 == source.size && rec.mtime == source.mtime;
-                if meta_matches
-                    && state_matches
+                let state_matches_source =
+                    rec.size as u64 == source.size && rec.mtime == source.mtime;
+                let dest_size_ok = dest.size == source.size;
+                // Prefer verified state over dest mtime: NAS/copy often changes mtime.
+                if state_matches_source
+                    && dest_size_ok
                     && matches!(
                         rec.status,
                         crate::state_store::FileStatus::Verified
@@ -105,11 +107,12 @@ pub fn classify(
                 {
                     return FileAction::Unchanged;
                 }
-                if !meta_matches || !state_matches {
+                if !state_matches_source || !dest_size_ok {
                     return FileAction::Updated;
                 }
                 return FileAction::Unchanged;
             }
+            let meta_matches = dest.size == source.size && dest.mtime == source.mtime;
             if meta_matches {
                 FileAction::Unchanged
             } else {

@@ -11,6 +11,7 @@
     "predist": "node scripts/sync-native.cjs && node scripts/ensure-electron.cjs",
     "prepack": "node scripts/sync-native.cjs && node scripts/ensure-electron.cjs",
     "postinstall": "node scripts/ensure-electron.cjs",
+    "smoke": "node scripts/smoke-native.cjs",
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
     "build": "vite build",
     "dist": "npm run build && electron-builder --win nsis",
