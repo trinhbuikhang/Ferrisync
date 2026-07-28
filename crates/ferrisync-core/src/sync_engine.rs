@@ -396,6 +396,22 @@ pub fn verify_existing_file(
         && source_hash == dest_hash)
 }
 
+/// Convenience for GUI/native: create session config, sync one pair.
+pub fn sync_folders(
+    source: impl AsRef<Path>,
+    destination: impl AsRef<Path>,
+) -> Result<SyncStats> {
+    let config = Config::single_pair(
+        source.as_ref().to_path_buf(),
+        destination.as_ref().to_path_buf(),
+    );
+    let _ = config.save(crate::config::default_gui_session_path());
+    let store = StateStore::open(config.state_db_path())?;
+    let pair = &config.pairs[0];
+    let opts = SyncOptions::from_config(&config, pair);
+    sync_pair(pair, &store, &opts)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

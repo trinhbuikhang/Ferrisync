@@ -2,6 +2,13 @@
 /target/
 **/*.rs.bk
 
+# Node / Electron
+**/node_modules/
+apps/desktop/dist/
+apps/desktop/release/
+apps/desktop/native-binding/*.node
+packages/ferrisync-native/*.node
+
 # IDE / OS
 .idea/
 .vscode/

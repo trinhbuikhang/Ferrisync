@@ -1,0 +1,63 @@
+{
+  "name": "ferrisync-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "author": "Ferrisync",
+  "description": "Ferrisync desktop GUI (Electron)",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "predev": "node scripts/sync-native.cjs",
+    "prebuild": "node scripts/sync-native.cjs",
+    "predist": "node scripts/sync-native.cjs",
+    "prepack": "node scripts/sync-native.cjs",
+    "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "build": "vite build",
+    "dist": "npm run build && electron-builder --win nsis",
+    "pack": "npm run build && electron-builder --win dir"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.2.5",
+    "@fontsource/jetbrains-mono": "^5.2.5",
+    "ferrisync-native": "file:./native-binding",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "electron": "^34.2.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0",
+    "wait-on": "^8.0.2"
+  },
+  "build": {
+    "appId": "com.ferrisync.desktop",
+    "productName": "Ferrisync",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "extraResources": [],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "Ferrisync-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  }
+}

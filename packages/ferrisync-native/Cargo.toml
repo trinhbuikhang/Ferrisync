@@ -1,0 +1,17 @@
+[package]
+name = "ferrisync-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "N-API bindings for Ferrisync core"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ferrisync-core = { path = "../../crates/ferrisync-core" }
+napi = { version = "2", default-features = false, features = ["napi4"] }
+napi-derive = "2"
+
+[build-dependencies]
+napi-build = "2"

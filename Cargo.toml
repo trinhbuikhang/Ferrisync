@@ -4,6 +4,7 @@ members = [
     "crates/ferrisync-core",
     "crates/ferrisync",
     "crates/ferrisync-gui",
+    "packages/ferrisync-native",
 ]
 
 [workspace.package]

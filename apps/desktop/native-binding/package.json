@@ -1,0 +1,12 @@
+{
+  "name": "ferrisync-native",
+  "version": "0.1.0",
+  "description": "Prebuilt Ferrisync native binding for Electron",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "*.node"
+  ]
+}
