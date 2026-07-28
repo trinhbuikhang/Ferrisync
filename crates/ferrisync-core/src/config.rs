@@ -218,6 +218,49 @@ impl Config {
     pub fn effective_concurrency(&self, pair: &PairConfig) -> usize {
         pair.concurrency.unwrap_or(self.defaults.concurrency).max(1)
     }
+
+    /// Build a ready-to-use config for GUI / ad-hoc sync (no TOML file required).
+    pub fn single_pair(source: PathBuf, destination: PathBuf) -> Self {
+        let data_dir = app_data_dir();
+        let pair_id = pair_id_from_paths(&source, &destination);
+        Self {
+            state_db: Some(data_dir.join("state.db")),
+            log_level: "info".into(),
+            audit_log: Some(data_dir.join("audit.jsonl")),
+            defaults: DefaultsConfig {
+                retention: RetentionConfig {
+                    enabled: false,
+                    dry_run: true,
+                    retention_days: DEFAULT_RETENTION_DAYS,
+                    mode: RetentionMode::Quarantine,
+                    quarantine_dir: Some(data_dir.join("quarantine")),
+                    purge_grace_days: DEFAULT_PURGE_GRACE_DAYS,
+                },
+                ..DefaultsConfig::default()
+            },
+            pairs: vec![PairConfig {
+                id: pair_id,
+                source,
+                destination,
+                concurrency: None,
+                retention: None,
+            }],
+        }
+    }
+
+    /// Persist config as TOML (creates parent dirs).
+    pub fn save(&self, path: impl AsRef<Path>) -> Result<()> {
+        let path = path.as_ref();
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
+            }
+        }
+        let text = toml::to_string_pretty(self)
+            .map_err(|e| Error::Other(format!("TOML serialize error: {e}")))?;
+        fs::write(path, text).map_err(|e| Error::io(path, e))?;
+        Ok(())
+    }
 }
 
 impl RetentionConfig {
@@ -240,17 +283,58 @@ impl RetentionConfig {
     }
 }
 
-pub fn default_state_db_path() -> PathBuf {
+/// Platform app-data directory for Ferrisync (created on demand by callers).
+pub fn app_data_dir() -> PathBuf {
     if let Some(dirs) = directories::ProjectDirs::from("com", "Ferrisync", "Ferrisync") {
-        dirs.data_dir().join("state.db")
+        dirs.data_dir().to_path_buf()
     } else {
-        PathBuf::from("ferrisync-state.db")
+        PathBuf::from(".ferrisync")
     }
+}
+
+pub fn default_gui_session_path() -> PathBuf {
+    app_data_dir().join("gui-session.toml")
+}
+
+fn pair_id_from_paths(source: &Path, destination: &Path) -> String {
+    let src = source
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "source".into());
+    let dst = destination
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "dest".into());
+    let raw = format!("{src}-to-{dst}");
+    raw.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+pub fn default_state_db_path() -> PathBuf {
+    app_data_dir().join("state.db")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn single_pair_builds_safe_defaults() {
+        let cfg = Config::single_pair(PathBuf::from("D:/src"), PathBuf::from("E:/dst"));
+        cfg.validate().unwrap();
+        assert_eq!(cfg.pairs.len(), 1);
+        assert!(!cfg.defaults.retention.enabled);
+        assert!(cfg.defaults.retention.dry_run);
+        assert!(cfg.state_db.is_some());
+        assert!(cfg.defaults.retention.quarantine_dir.is_some());
+    }
 
     #[test]
     fn retention_defaults_are_safe() {

@@ -4,25 +4,29 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
-use ferrisync_core::config::{Config, RetentionConfig, RetentionMode};
+use ferrisync_core::config::{default_gui_session_path, Config};
 use ferrisync_core::logging::AuditLog;
 use ferrisync_core::retention::{cleanup_pair, purge_quarantine, RetentionOptions};
 use ferrisync_core::state_store::StateStore;
 use ferrisync_core::sync_engine::{sync_pair, SyncOptions};
 
 #[derive(Debug, Clone)]
+pub struct FolderSession {
+    pub source: PathBuf,
+    pub destination: PathBuf,
+}
+
+#[derive(Debug, Clone)]
 pub enum Job {
-    Sync { config_path: PathBuf, pair_id: String },
-    Status { config_path: PathBuf, pair_id: String },
+    Sync(FolderSession),
+    Status(FolderSession),
     Cleanup {
-        config_path: PathBuf,
-        pair_id: String,
+        session: FolderSession,
         force_dry_run: bool,
         force_enabled: bool,
     },
     Purge {
-        config_path: PathBuf,
-        pair_id: String,
+        session: FolderSession,
         force_dry_run: bool,
     },
 }
@@ -67,15 +71,43 @@ fn log(tx: &Sender<JobEvent>, msg: impl Into<String>) {
     let _ = tx.send(JobEvent::Log(msg.into()));
 }
 
+fn prepare_config(session: &FolderSession) -> anyhow::Result<Config> {
+    if session.source.as_os_str().is_empty() {
+        anyhow::bail!("choose a source folder first");
+    }
+    if session.destination.as_os_str().is_empty() {
+        anyhow::bail!("choose a destination folder first");
+    }
+    if !session.source.is_dir() {
+        anyhow::bail!(
+            "source folder does not exist: {}",
+            session.source.display()
+        );
+    }
+
+    let config = Config::single_pair(session.source.clone(), session.destination.clone());
+    config.validate()?;
+
+    // Auto-persist so the next GUI launch restores these folders.
+    let session_path = default_gui_session_path();
+    config.save(&session_path)?;
+
+    Ok(config)
+}
+
 fn run_job(job: Job, tx: &Sender<JobEvent>) -> anyhow::Result<()> {
     match job {
-        Job::Sync {
-            config_path,
-            pair_id,
-        } => {
-            let config = Config::load(&config_path)?;
+        Job::Sync(session) => {
+            let config = prepare_config(&session)?;
+            log(
+                tx,
+                format!(
+                    "session saved to {}",
+                    default_gui_session_path().display()
+                ),
+            );
             let store = StateStore::open(config.state_db_path())?;
-            let pair = config.pair(&pair_id)?;
+            let pair = &config.pairs[0];
             log(
                 tx,
                 format!(
@@ -96,13 +128,10 @@ fn run_job(job: Job, tx: &Sender<JobEvent>) -> anyhow::Result<()> {
             );
             Ok(())
         }
-        Job::Status {
-            config_path,
-            pair_id,
-        } => {
-            let config = Config::load(&config_path)?;
+        Job::Status(session) => {
+            let config = prepare_config(&session)?;
             let store = StateStore::open(config.state_db_path())?;
-            let pair = config.pair(&pair_id)?;
+            let pair = &config.pairs[0];
             log(
                 tx,
                 format!(
@@ -116,7 +145,6 @@ fn run_job(job: Job, tx: &Sender<JobEvent>) -> anyhow::Result<()> {
                 tx,
                 format!("state_db={}", config.state_db_path().display()),
             );
-            // Sample a few known files by scanning source and looking up state.
             let files = ferrisync_core::scanner::scan_files(&pair.source)?;
             let mut verified = 0u64;
             let mut missing = 0u64;
@@ -141,14 +169,13 @@ fn run_job(job: Job, tx: &Sender<JobEvent>) -> anyhow::Result<()> {
             Ok(())
         }
         Job::Cleanup {
-            config_path,
-            pair_id,
+            session,
             force_dry_run,
             force_enabled,
         } => {
-            let config = Config::load(&config_path)?;
+            let config = prepare_config(&session)?;
             let store = StateStore::open(config.state_db_path())?;
-            let pair = config.pair(&pair_id)?;
+            let pair = &config.pairs[0];
             let mut retention = config.effective_retention(pair);
             if force_enabled {
                 retention.enabled = true;
@@ -171,7 +198,7 @@ fn run_job(job: Job, tx: &Sender<JobEvent>) -> anyhow::Result<()> {
             if !retention.enabled {
                 log(
                     tx,
-                    "CLEANUP skipped: retention.enabled=false (toggle Force enable in GUI or config)",
+                    "CLEANUP skipped: retention.enabled=false (enable Force retention in GUI)",
                 );
                 return Ok(());
             }
@@ -190,18 +217,16 @@ fn run_job(job: Job, tx: &Sender<JobEvent>) -> anyhow::Result<()> {
             Ok(())
         }
         Job::Purge {
-            config_path,
-            pair_id,
+            session,
             force_dry_run,
         } => {
-            let config = Config::load(&config_path)?;
+            let config = prepare_config(&session)?;
             let store = StateStore::open(config.state_db_path())?;
-            let pair = config.pair(&pair_id)?;
+            let pair = &config.pairs[0];
             let mut retention = config.effective_retention(pair);
             if force_dry_run {
                 retention.dry_run = true;
             }
-            ensure_quarantine_mode_hint(&retention, tx);
             let audit = open_audit(&config)?;
             let opts = RetentionOptions::from_config(retention);
             let stats = purge_quarantine(pair, &store, &opts, audit.as_ref())?;
@@ -221,11 +246,5 @@ fn open_audit(config: &Config) -> anyhow::Result<Option<AuditLog>> {
     match &config.audit_log {
         Some(path) => Ok(Some(AuditLog::open(path)?)),
         None => Ok(None),
-    }
-}
-
-fn ensure_quarantine_mode_hint(retention: &RetentionConfig, tx: &Sender<JobEvent>) {
-    if retention.mode != RetentionMode::Quarantine {
-        log(tx, "note: retention.mode is not quarantine");
     }
 }

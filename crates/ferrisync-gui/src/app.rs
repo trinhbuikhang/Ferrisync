@@ -1,20 +1,16 @@
-//! Main egui application state and layout.
+//! Main egui application — pick source + destination folders, then sync.
 
 use std::path::PathBuf;
 
-use eframe::egui::{self, Align, Layout, RichText, ScrollArea, Sense};
-use ferrisync_core::config::Config;
+use eframe::egui::{self, Align, Layout, RichText, ScrollArea};
+use ferrisync_core::config::{default_gui_session_path, Config};
 
 use crate::theme::{self, AMBER, BG, GREEN, MUTED, PANEL, PANEL_EDGE, RED, TEXT};
-use crate::worker::{Job, JobEvent, WorkerHandle};
+use crate::worker::{FolderSession, Job, JobEvent, WorkerHandle};
 
 pub struct FerrisyncApp {
-    config_path: String,
-    pair_ids: Vec<String>,
-    selected_pair: usize,
-    pair_source: String,
-    pair_dest: String,
-    retention_summary: String,
+    source: String,
+    destination: String,
     status_line: String,
     log_lines: Vec<(LogKind, String)>,
     busy: bool,
@@ -35,72 +31,58 @@ impl FerrisyncApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         theme::apply(&cc.egui_ctx);
 
-        let default_config = find_default_config();
         let mut app = Self {
-            config_path: default_config,
-            pair_ids: Vec::new(),
-            selected_pair: 0,
-            pair_source: String::new(),
-            pair_dest: String::new(),
-            retention_summary: String::new(),
-            status_line: "Load a config to begin.".into(),
+            source: String::new(),
+            destination: String::new(),
+            status_line: "Choose a source folder and a destination folder, then Sync.".into(),
             log_lines: vec![(
                 LogKind::Info,
-                "Ferrisync GUI ready — load config, pick a pair, run Sync.".into(),
+                "Pick source (original) and destination (copy target), then press Sync.".into(),
             )],
             busy: false,
             force_enable_retention: false,
             confirm_live_cleanup: false,
             worker: WorkerHandle::spawn(),
         };
-        let _ = app.reload_config();
+        app.restore_last_session();
         app
     }
 
-    fn reload_config(&mut self) -> Result<(), String> {
-        let path = PathBuf::from(self.config_path.trim());
-        if self.config_path.trim().is_empty() {
-            return Err("config path is empty".into());
+    fn restore_last_session(&mut self) {
+        let path = default_gui_session_path();
+        if !path.exists() {
+            return;
         }
-        let config = Config::load(&path).map_err(|e| e.to_string())?;
-        self.pair_ids = config.pairs.iter().map(|p| p.id.clone()).collect();
-        if self.selected_pair >= self.pair_ids.len() {
-            self.selected_pair = 0;
-        }
-        self.refresh_pair_view(&config);
-        self.status_line = format!(
-            "Loaded {} — {} pair(s), state_db={}",
-            path.display(),
-            self.pair_ids.len(),
-            config.state_db_path().display()
-        );
-        self.push_log(LogKind::Ok, self.status_line.clone());
-        Ok(())
-    }
-
-    fn refresh_pair_view(&mut self, config: &Config) {
-        if let Some(id) = self.pair_ids.get(self.selected_pair).cloned() {
-            if let Ok(pair) = config.pair(&id) {
-                self.pair_source = pair.source.display().to_string();
-                self.pair_dest = pair.destination.display().to_string();
-                let r = config.effective_retention(pair);
-                self.retention_summary = format!(
-                    "enabled={}  dry_run={}  days={}  mode={:?}  quarantine={}",
-                    r.enabled,
-                    r.dry_run,
-                    r.retention_days,
-                    r.mode,
-                    r.quarantine_dir
-                        .as_ref()
-                        .map(|p| p.display().to_string())
-                        .unwrap_or_else(|| "(none)".into())
+        match Config::load(&path) {
+            Ok(cfg) => {
+                if let Some(pair) = cfg.pairs.first() {
+                    self.source = pair.source.display().to_string();
+                    self.destination = pair.destination.display().to_string();
+                    self.status_line = format!(
+                        "Restored last folders. State DB: {}",
+                        cfg.state_db_path().display()
+                    );
+                    self.push_log(LogKind::Ok, self.status_line.clone());
+                }
+            }
+            Err(e) => {
+                self.push_log(
+                    LogKind::Warn,
+                    format!("Could not restore last session: {e}"),
                 );
             }
-        } else {
-            self.pair_source.clear();
-            self.pair_dest.clear();
-            self.retention_summary.clear();
         }
+    }
+
+    fn session(&self) -> FolderSession {
+        FolderSession {
+            source: PathBuf::from(self.source.trim()),
+            destination: PathBuf::from(self.destination.trim()),
+        }
+    }
+
+    fn folders_ready(&self) -> bool {
+        !self.source.trim().is_empty() && !self.destination.trim().is_empty()
     }
 
     fn push_log(&mut self, kind: LogKind, msg: String) {
@@ -111,13 +93,12 @@ impl FerrisyncApp {
         }
     }
 
-    fn selected_pair_id(&self) -> Option<String> {
-        self.pair_ids.get(self.selected_pair).cloned()
-    }
-
     fn submit(&mut self, job: Job) {
         if self.busy {
-            self.push_log(LogKind::Warn, "Busy — wait for the current job to finish.".into());
+            self.push_log(
+                LogKind::Warn,
+                "Busy — wait for the current job to finish.".into(),
+            );
             return;
         }
         match self.worker.submit(job) {
@@ -159,6 +140,13 @@ impl FerrisyncApp {
             }
         }
     }
+
+    fn pick_folder(title: &str) -> Option<String> {
+        rfd::FileDialog::new()
+            .set_title(title)
+            .pick_folder()
+            .map(|p| p.display().to_string())
+    }
 }
 
 impl eframe::App for FerrisyncApp {
@@ -173,7 +161,11 @@ impl eframe::App for FerrisyncApp {
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.heading(RichText::new("FERRISYNC").color(AMBER).strong());
-                    ui.label(RichText::new("  field sync console").color(MUTED).italics());
+                    ui.label(
+                        RichText::new("  pick folders → sync")
+                            .color(MUTED)
+                            .italics(),
+                    );
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let badge = if self.busy {
                             RichText::new("● RUNNING").color(AMBER)
@@ -193,65 +185,46 @@ impl eframe::App for FerrisyncApp {
                     .inner_margin(14.0)
                     .corner_radius(4.0)
                     .show(ui, |ui| {
-                        ui.label(RichText::new("CONFIG").color(AMBER).small().strong());
+                        ui.label(RichText::new("FOLDERS").color(AMBER).small().strong());
+                        ui.add_space(6.0);
+
+                        ui.label(RichText::new("Source (original files)").color(MUTED));
                         ui.horizontal(|ui| {
                             ui.add(
-                                egui::TextEdit::singleline(&mut self.config_path)
-                                    .desired_width(560.0)
-                                    .hint_text("path to ferrisync.toml"),
+                                egui::TextEdit::singleline(&mut self.source)
+                                    .desired_width(640.0)
+                                    .hint_text("folder to copy from"),
                             );
                             if ui.button("Browse…").clicked() {
-                                if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter("TOML", &["toml"])
-                                    .pick_file()
-                                {
-                                    self.config_path = path.display().to_string();
-                                }
-                            }
-                            if ui.button("Reload").clicked() {
-                                if let Err(e) = self.reload_config() {
-                                    self.push_log(LogKind::Err, format!("reload failed: {e}"));
-                                    self.status_line = format!("Reload failed: {e}");
+                                if let Some(path) = Self::pick_folder("Choose source folder") {
+                                    self.source = path;
                                 }
                             }
                         });
 
                         ui.add_space(8.0);
-                        ui.label(RichText::new("FOLDER PAIR").color(AMBER).small().strong());
-                        if self.pair_ids.is_empty() {
-                            ui.label(RichText::new("No pairs loaded.").color(MUTED));
-                        } else {
-                            let pair_ids = self.pair_ids.clone();
-                            let mut changed = false;
-                            egui::ComboBox::from_id_salt("pair_select")
-                                .selected_text(
-                                    pair_ids
-                                        .get(self.selected_pair)
-                                        .cloned()
-                                        .unwrap_or_default(),
-                                )
-                                .show_ui(ui, |ui| {
-                                    for (i, id) in pair_ids.iter().enumerate() {
-                                        if ui
-                                            .selectable_value(&mut self.selected_pair, i, id)
-                                            .changed()
-                                        {
-                                            changed = true;
-                                        }
-                                    }
-                                });
-                            if changed {
-                                if let Ok(cfg) =
-                                    Config::load(PathBuf::from(self.config_path.trim()))
-                                {
-                                    self.refresh_pair_view(&cfg);
+                        ui.label(RichText::new("Destination (NAS / copy target)").color(MUTED));
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.destination)
+                                    .desired_width(640.0)
+                                    .hint_text("folder to copy to"),
+                            );
+                            if ui.button("Browse…").clicked() {
+                                if let Some(path) = Self::pick_folder("Choose destination folder") {
+                                    self.destination = path;
                                 }
                             }
-                            ui.add_space(4.0);
-                            path_row(ui, "source", &self.pair_source);
-                            path_row(ui, "dest  ", &self.pair_dest);
-                            ui.label(RichText::new(&self.retention_summary).color(MUTED).small());
-                        }
+                        });
+
+                        ui.add_space(6.0);
+                        ui.label(
+                            RichText::new(
+                                "Config, SQLite state, and audit log are created automatically under AppData/Ferrisync.",
+                            )
+                            .color(MUTED)
+                            .small(),
+                        );
                     });
 
                 ui.add_space(12.0);
@@ -264,55 +237,42 @@ impl eframe::App for FerrisyncApp {
                     .show(ui, |ui| {
                         ui.label(RichText::new("ACTIONS").color(AMBER).small().strong());
                         ui.horizontal_wrapped(|ui| {
-                            let can_run = !self.busy && self.selected_pair_id().is_some();
+                            let can_run = !self.busy && self.folders_ready();
                             if ui
                                 .add_enabled(can_run, egui::Button::new("▶  Sync"))
                                 .on_hover_text("Compare + copy + BLAKE3 verify")
                                 .clicked()
                             {
-                                if let Some(pair_id) = self.selected_pair_id() {
-                                    self.submit(Job::Sync {
-                                        config_path: PathBuf::from(self.config_path.trim()),
-                                        pair_id,
-                                    });
-                                }
+                                self.submit(Job::Sync(self.session()));
                             }
                             if ui
                                 .add_enabled(can_run, egui::Button::new("Status"))
                                 .clicked()
                             {
-                                if let Some(pair_id) = self.selected_pair_id() {
-                                    self.submit(Job::Status {
-                                        config_path: PathBuf::from(self.config_path.trim()),
-                                        pair_id,
-                                    });
-                                }
+                                self.submit(Job::Status(self.session()));
                             }
                             if ui
                                 .add_enabled(can_run, egui::Button::new("Cleanup (dry-run)"))
-                                .on_hover_text("Always dry-run — never touches source files")
+                                .on_hover_text("Never touches source files")
                                 .clicked()
                             {
-                                if let Some(pair_id) = self.selected_pair_id() {
-                                    self.submit(Job::Cleanup {
-                                        config_path: PathBuf::from(self.config_path.trim()),
-                                        pair_id,
-                                        force_dry_run: true,
-                                        force_enabled: true,
-                                    });
-                                }
+                                self.submit(Job::Cleanup {
+                                    session: self.session(),
+                                    force_dry_run: true,
+                                    force_enabled: true,
+                                });
                             }
                             if ui
-                                .add_enabled(can_run, egui::Button::new("Purge quarantine (dry-run)"))
+                                .add_enabled(
+                                    can_run,
+                                    egui::Button::new("Purge quarantine (dry-run)"),
+                                )
                                 .clicked()
                             {
-                                if let Some(pair_id) = self.selected_pair_id() {
-                                    self.submit(Job::Purge {
-                                        config_path: PathBuf::from(self.config_path.trim()),
-                                        pair_id,
-                                        force_dry_run: true,
-                                    });
-                                }
+                                self.submit(Job::Purge {
+                                    session: self.session(),
+                                    force_dry_run: true,
+                                });
                             }
                         });
 
@@ -334,7 +294,7 @@ impl eframe::App for FerrisyncApp {
                             "I understand this may quarantine/delete source files",
                         );
                         let live_ok = !self.busy
-                            && self.selected_pair_id().is_some()
+                            && self.folders_ready()
                             && self.force_enable_retention
                             && self.confirm_live_cleanup;
                         if ui
@@ -346,15 +306,12 @@ impl eframe::App for FerrisyncApp {
                             )
                             .clicked()
                         {
-                            if let Some(pair_id) = self.selected_pair_id() {
-                                self.submit(Job::Cleanup {
-                                    config_path: PathBuf::from(self.config_path.trim()),
-                                    pair_id,
-                                    force_dry_run: false,
-                                    force_enabled: true,
-                                });
-                                self.confirm_live_cleanup = false;
-                            }
+                            self.submit(Job::Cleanup {
+                                session: self.session(),
+                                force_dry_run: false,
+                                force_enabled: true,
+                            });
+                            self.confirm_live_cleanup = false;
                         }
                     });
 
@@ -395,34 +352,4 @@ impl eframe::App for FerrisyncApp {
                     });
             });
     }
-}
-
-fn path_row(ui: &mut egui::Ui, label: &str, path: &str) {
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(label).color(MUTED).monospace());
-        ui.add(
-            egui::Label::new(RichText::new(path).color(TEXT).monospace())
-                .sense(Sense::click())
-                .truncate(),
-        );
-    });
-}
-
-fn find_default_config() -> String {
-    let candidates = [
-        "ferrisync.toml",
-        "config.example.toml",
-        "crates/../ferrisync.toml",
-    ];
-    for c in candidates {
-        let p = PathBuf::from(c);
-        if p.exists() {
-            return p
-                .canonicalize()
-                .unwrap_or(p)
-                .display()
-                .to_string();
-        }
-    }
-    "ferrisync.toml".into()
 }

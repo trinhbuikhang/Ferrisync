@@ -11,7 +11,8 @@ pub mod state_store;
 pub mod sync_engine;
 
 pub use config::{
-    CompareMode, Config, PairConfig, RetentionConfig, RetentionMode, DEFAULT_RETENTION_DAYS,
+    app_data_dir, default_gui_session_path, CompareMode, Config, PairConfig, RetentionConfig,
+    RetentionMode, DEFAULT_RETENTION_DAYS,
 };
 pub use error::{Error, Result};
 pub use state_store::{FileRecord, FileStatus, StateStore};
