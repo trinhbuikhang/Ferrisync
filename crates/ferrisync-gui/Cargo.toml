@@ -1,0 +1,17 @@
+[package]
+name = "ferrisync-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Desktop GUI for Ferrisync testing and operations"
+
+[[bin]]
+name = "ferrisync-gui"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+eframe.workspace = true
+egui.workspace = true
+ferrisync-core = { path = "../ferrisync-core" }
+rfd.workspace = true

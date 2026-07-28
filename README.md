@@ -9,6 +9,18 @@ Rust CLI/library for one-way folder sync to a NAS (or any destination), with **s
 | `ferrisync-core` | Library: scan, queue/workers, copy+hash, SQLite state, retention |
 | `ferrisync` | Thin CLI front-end |
 
+## GUI (easy testing)
+
+Native desktop console built with egui, calling `ferrisync-core` directly:
+
+```bash
+cargo run -p ferrisync-gui --release
+```
+
+1. Browse / reload a `ferrisync.toml` (or start from `config.example.toml`).
+2. Pick a folder pair.
+3. Use **Sync**, **Status**, **Cleanup (dry-run)** — live cleanup requires two confirmations.
+
 ## Build
 
 ```bash

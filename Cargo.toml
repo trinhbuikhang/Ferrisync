@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/ferrisync-core",
     "crates/ferrisync",
+    "crates/ferrisync-gui",
 ]
 
 [workspace.package]
@@ -30,3 +31,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4"] }
 assert_fs = "1"
 predicates = "3"
+eframe = { version = "0.31", default-features = true }
+egui = "0.31"
+rfd = "0.15"
