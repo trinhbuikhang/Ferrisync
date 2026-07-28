@@ -18,8 +18,12 @@ cd ../..
 # 2) Run Electron UI
 cd apps/desktop
 npm install
+# If npm warns about allow-scripts for electron, either approve them or just run:
+#   node scripts/ensure-electron.cjs
 npm run dev
 ```
+
+`npm run dev` / `postinstall` runs `ensure-electron` so the Electron binary is downloaded even when npm blocks package postinstall scripts.
 
 Flow: **Browse** source + destination → **Compare** → **Synchronize**.
 
